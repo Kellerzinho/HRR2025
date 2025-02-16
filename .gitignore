@@ -1,0 +1,92 @@
+# Arquivos compilados e otimizações do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Extensões em C
+*.so
+
+# Distribuição e empacotamento
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Ambientes virtuais
+venv/
+ENV/
+env/
+.venv/
+env.bak/
+venv.bak/
+
+# PyInstaller (arquivos criados durante a criação de executáveis)
+*.manifest
+*.spec
+
+# Logs do instalador
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Relatórios de testes e cobertura
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Arquivos de tradução
+*.mo
+*.pot
+
+# Configurações e arquivos específicos de frameworks
+# Django
+*.log
+local_settings.py
+db.sqlite3
+
+# Flask
+instance/
+.webassets-cache
+
+# Scrapy
+.scrapy
+
+# Documentação (Sphinx, etc.)
+docs/_build/
+
+# PyBuilder
+target/
+
+# Configurações de IDEs e editores
+.vscode/
+.idea/
+
+# Notebooks Jupyter
+.ipynb_checkpoints
+
+# Cache do MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
