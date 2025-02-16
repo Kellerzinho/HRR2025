@@ -1,5 +1,4 @@
-# src/core/imu.py
-import smbus
+import smbus2 as smbus
 import time
 import math
 
@@ -17,17 +16,15 @@ class IMUReader:
         self._initialize_sensor()
 
     def _initialize_sensor(self):
-        # Despertar o MPU6050 (escrever 0 no registrador de gerenciamento de energia)
-        self.bus.write_byte_data(self.address, 0x6B, 0)
-        self.bus.write_byte_data(self.address, 0x1C, 0x00)  # Config. acelerômetro para +/- 2g
-        self.bus.write_byte_data(self.address, 0x1B, 0x00)  # Config. giroscópio para +/- 250 deg/s
+        # Despertar o MPU9250 (escreve 0 no registrador de gerenciamento de energia)
+        self.bus.write_byte_data(self.mpu_address, 0x6B, 0)
         time.sleep(0.1)
-
+        
         # Ativar o modo bypass para acessar diretamente o AK8963.
         # Registrador 0x37 (INT_PIN_CFG): configurar bit 1 para 1.
         self.bus.write_byte_data(self.mpu_address, 0x37, 0x02)
         time.sleep(0.1)
-
+        
         # Configurar o AK8963: escreva em CNTL1 (registrador 0x0A) para:
         # - Operar em modo contínuo de medição 2 (100Hz) com saída de 16 bits.
         self.bus.write_byte_data(self.ak_address, 0x0A, 0x16)
@@ -39,13 +36,12 @@ class IMUReader:
         """
         Lê dois bytes do registrador e os combina em um valor de 16 bits.
         """
-        high = self.bus.read_byte_data(self.address, reg)
-        low = self.bus.read_byte_data(self.address, reg + 1)
+        high = self.bus.read_byte_data(self.mpu_address, reg)
+        low = self.bus.read_byte_data(self.mpu_address, reg + 1)
         value = (high << 8) | low
-        if value > 32768:
-            value = value - 65536
+        if value > 32767:
+            value -= 65536
         return value
-
 
     def get_imu_data(self):
         """

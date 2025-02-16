@@ -13,6 +13,7 @@ from core.strategy import Strategy
 from core.navigation import Navigator
 from core.control_pid import MotionController
 from core.imu import IMUReader
+from core.odometry import OdometryState
 from utils.config_loader import load_config
 
 
@@ -68,6 +69,9 @@ def main():
     # F) Inicializa o leitor do IMU via I²C
     imu_reader = IMUReader(i2c_address=0x68, bus_id=1)
 
+    # G) Cria o estado de odometria
+    odom_state = OdometryState()
+
     last_time = time.time()
 
     # -------------------------------------------------------------
@@ -107,10 +111,7 @@ def main():
             #   }
 
             # 2.5) Cálculo de odometria (dx, dy, dtheta)
-            #     Se você tiver algo real, extraia do IMU ou encoders. Aqui, colocamos algo fixo
-            dx = 0.01
-            dy = 0.0
-            dtheta = 0.0
+            dx, dy, dtheta = odom_state.compute_odometry_from_imu(perception)
             odom = (dx, dy, dtheta)
 
             # 2.6) Transformar as posições do 'goal', 'centercircle', 'penaltycross' em medições (dist, angle)
