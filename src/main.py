@@ -67,7 +67,7 @@ def main():
     )
 
     # F) Inicializa o leitor do IMU via I²C
-    imu_reader = IMUReader(i2c_address=0x68, bus_id=1)
+    imu_reader = IMUReader(mpu_address=0x68, ak_address=0x0C, bus_id=1)
 
     # G) Cria o estado de odometria
     odom_state = OdometryState()
