@@ -12,6 +12,7 @@ from core.slam import MonteCarloLocalization
 from core.strategy import Strategy
 from core.navigation import Navigator
 from core.control_pid import MotionController
+from core.imu import IMUReader
 from utils.config_loader import load_config
 
 
@@ -64,6 +65,9 @@ def main():
         theta_var=0.1
     )
 
+    # F) Inicializa o leitor do IMU via I²C
+    imu_reader = IMUReader(i2c_address=0x68, bus_id=1)
+
     last_time = time.time()
 
     # -------------------------------------------------------------
@@ -83,12 +87,7 @@ def main():
 
             # 2.2) Leitura fictícia do IMU (substitua por leitura real no seu robô)
             #     Exemplo: cada loop, atualiza giroscópio e magnetômetro de forma aleatória ou fixa
-            imu_data = {
-                'timestamp': now,
-                'accel': (0.0, 0.0, 9.81),
-                'gyro': (0.0, 0.0, 0.0),   # rad/s
-                'mag': (0.5, 0.2, 0.0)    # ex.: heading aproximado
-            }
+            imu_data = imu_reader.get_imu_data()
             perception.update_imu_data(imu_data)
 
             # 2.3) Detecção de landmarks via YOLOv8
