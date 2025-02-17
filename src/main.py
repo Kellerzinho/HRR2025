@@ -11,6 +11,7 @@ from core.perception import Perception
 from core.slam import MonteCarloLocalization
 from core.imu import IMUReader
 from core.odometry import OdometryState
+from core.field_draw import FieldDrawer
 from utils.config_loader import load_config
 
 def main():
@@ -35,6 +36,8 @@ def main():
 
     imu_reader = IMUReader(mpu_address=0x68, ak_address=0x0C, bus_id=1)
     odom_state = OdometryState()
+
+    field_drawer = FieldDrawer(scale=100)
 
     last_time = time.time()
 
@@ -113,6 +116,10 @@ def main():
                         f"Pose: x={x_est:.2f}, y={y_est:.2f}, th={math.degrees(theta_est):.1f}",
                         (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,255,255), 2)
             cv2.imshow("Debug Vision+SLAM", debug_frame)
+            
+            # 9) Desenha o campo e a posição do robô
+            field_img = field_drawer.draw_field(field_map, (x_est, y_est, theta_est))
+            cv2.imshow("Campo - Posição do Robô", field_img)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break

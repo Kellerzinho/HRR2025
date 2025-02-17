@@ -64,7 +64,7 @@ class MonteCarloLocalization:
         Por exemplo, se o robô iniciar no meio do campo (4.5, 3.0):
         """
         particles = []
-        x0, y0 = 4.5, 3.0  # Posição inicial desejada
+        x0, y0 = 0, 0  # Posição inicial desejada
         for _ in range(self.num_particles):
             # Usa uma distribuição normal com desvio padrão pequeno
             x = random.gauss(x0, 0.2)
