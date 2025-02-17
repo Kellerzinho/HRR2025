@@ -163,13 +163,14 @@ class VisionSystem:
         Pode exibir bounding boxes ou contornos conforme o label.
         """
         color_map = {
-            'ball': (0, 0, 255),
-            'centercircle': (0, 255, 0),
-            'goal': (255, 0, 0),
-            'line': (255, 255, 0),
-            'penaltycross': (255, 0, 255),
-            'robot': (0, 255, 255)
+            'ball': (0, 0, 255),           # Vermelho 
+            'centercircle': (128, 0, 128), # Roxo 
+            'goal': (255, 0, 0),           # Azul 
+            'line': (255, 255, 0),         # Ciano 
+            'penaltycross': (255, 0, 255), # Magenta 
+            'robot': (0, 255, 255)         # Amarelo
         }
+
         for label, det_list in detections.items():
             for det in det_list:
                 c = color_map.get(label, (255, 255, 255))
