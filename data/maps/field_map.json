@@ -1,10 +1,15 @@
 {
     "width": 9.0,
     "height": 6.0,
-    "goal_x": 9.0,
-    "goal_y": 3.0,
-    "centercircle_x": 4.5,
-    "centercircle_y": 3.0,
-    "penaltycross_x": 7.5,
-    "penaltycross_y": 3.0
-}
+    "left_goal_x": 0.0,
+    "left_goal_y": 3.0,
+    "right_goal_x": 9.0,
+    "right_goal_y": 3.0,
+    "center_circle_x": 4.5,
+    "center_circle_y": 3.0,
+    "left_penaltycross_x": 1.5,
+    "left_penaltycross_y": 3.0,
+    "right_penaltycross_x": 7.5,
+    "right_penaltycross_y": 3.0
+  }
+  

@@ -1,3 +1,5 @@
+# src/core/slam.py
+
 import math
 import random
 import numpy as np
@@ -13,8 +15,16 @@ class MonteCarloLocalization:
             {
               "width": 9.0,
               "height": 6.0,
-              "goal_x": 9.0,
-              "goal_y": 3.0
+              "left_goal_x": 0.0,
+              "left_goal_y": 3.0,
+              "right_goal_x": 9.0,
+              "right_goal_y": 3.0,
+              "center_circle_x": 4.5,
+              "center_circle_y": 3.0,
+              "left_penaltycross_x": 1.5,
+              "left_penaltycross_y": 3.0,
+              "right_penaltycross_x": 7.5,
+              "right_penaltycross_y": 3.0
             }
         :param num_particles: número de partículas no filtro
         :param x_var, y_var, theta_var: variâncias (ou desvios-padrão) para injetar ruído
@@ -24,30 +34,41 @@ class MonteCarloLocalization:
         self.width = field_map.get('width', 9.0)
         self.height = field_map.get('height', 6.0)
 
-        self.goal_x = field_map.get('goal_x', 9.0)
-        self.goal_y = field_map.get('goal_y', 3.0)
-        self.centercircle_x = field_map.get('centercircle_x', 4.5)
-        self.centercircle_y = field_map.get('centercircle_y', 3.0)
-        self.penaltycross_x = field_map.get('penaltycross_x', 7.5)
-        self.penaltycross_y = field_map.get('penaltycross_y', 3.0)
+        # Goleiras
+        self.left_goal_x = field_map.get('left_goal_x', 0.0)
+        self.left_goal_y = field_map.get('left_goal_y', 3.0)
+        self.right_goal_x = field_map.get('right_goal_x', 9.0)
+        self.right_goal_y = field_map.get('right_goal_y', 3.0)
+
+        # Círculo central
+        self.center_x = field_map.get('center_circle_x', 4.5)
+        self.center_y = field_map.get('center_circle_y', 3.0)
+
+        # Penalty crosses
+        self.left_penalty_x = field_map.get('left_penaltycross_x', 1.5)
+        self.left_penalty_y = field_map.get('left_penaltycross_y', 3.0)
+        self.right_penalty_x = field_map.get('right_penaltycross_x', 7.5)
+        self.right_penalty_y = field_map.get('right_penaltycross_y', 3.0)
 
         self.num_particles = num_particles
         self.x_var = x_var
         self.y_var = y_var
         self.theta_var = theta_var
 
-        # Lista de partículas: cada partícula = (x, y, theta, weight)
+        # Lista de partículas: cada partícula = [x, y, theta, weight]
         self.particles = self._initialize_particles()
 
     def _initialize_particles(self):
         """
-        Inicializa partículas de forma uniforme pelo campo e ângulo aleatório.
-        Peso inicial = 1 / num_particles.
+        Inicializa partículas com distribuição normal em torno de uma posição inicial conhecida.
+        Por exemplo, se o robô iniciar no meio do campo (4.5, 3.0):
         """
         particles = []
+        x0, y0 = 4.5, 3.0  # Posição inicial desejada
         for _ in range(self.num_particles):
-            x = random.uniform(0, self.width)
-            y = random.uniform(0, self.height)
+            # Usa uma distribuição normal com desvio padrão pequeno
+            x = random.gauss(x0, 0.2)
+            y = random.gauss(y0, 0.2)
             theta = random.uniform(-math.pi, math.pi)
             w = 1.0 / self.num_particles
             particles.append([x, y, theta, w])
@@ -60,20 +81,18 @@ class MonteCarloLocalization:
         :param odom: (dx, dy, dtheta) - deslocamento estimado do robô nesse intervalo
                      pode vir de IMU + contagem de passos, etc.
         :param dt: passo de tempo
-        :param world_positions: dict retornado pela percepção. Por ex.:
+        :param world_positions: dict retornado pela percepção contendo medições, por ex.:
            {
-             'goal_measure': (distance_measured, angle_measured),
+             'left_goal_measure': (dist, angle),
+             'right_goal_measure': (dist, angle),
+             'center_circle_measure': (dist, angle),
+             'left_penaltycross_measure': (dist, angle),
+             'right_penaltycross_measure': (dist, angle)
              ...
            }
-           Aqui vamos focar no 'goal_measure'.
         """
-        # 1) Predição
         self._predict(odom, dt)
-
-        # 2) Correção - compara medições do "goal" com o valor esperado
         self._correct(world_positions)
-
-        # 3) Reamostragem
         self._resample()
 
     def _predict(self, odom, dt):
@@ -86,14 +105,12 @@ class MonteCarloLocalization:
         for i in range(len(self.particles)):
             x, y, theta, w = self.particles[i]
 
-            # Aplica deslocamento no referencial local da partícula
-            # 1) Gira o vetor (dx, dy) pelo theta da partícula:
+            # Converte (dx, dy) do referencial local para global baseado em theta
             cos_t = math.cos(theta)
             sin_t = math.sin(theta)
             global_dx = dx * cos_t - dy * sin_t
             global_dy = dx * sin_t + dy * cos_t
 
-            # 2) Atualiza posição
             x_new = x + global_dx
             y_new = y + global_dy
             theta_new = theta + dtheta
@@ -106,7 +123,7 @@ class MonteCarloLocalization:
             y_new += random.gauss(0, self.y_var * dt)
             theta_new += random.gauss(0, self.theta_var * dt)
 
-            # Garante que a partícula permaneça dentro do campo (opcional)
+            # Garante que a partícula fique no campo
             x_new = max(0, min(self.width, x_new))
             y_new = max(0, min(self.height, y_new))
             theta_new = self._normalize_angle(theta_new)
@@ -115,14 +132,15 @@ class MonteCarloLocalization:
 
     def _correct(self, world_positions):
         """
-        Ajusta o peso (weight) de cada partícula com base em múltiplas medições de landmarks,
-        por exemplo:
-          - 'goal_measure': (dist_med, angle_med)
-          - 'centercircle_measure': (dist_med, angle_med)
-          - 'penaltycross_measure': (dist_med, angle_med)
-        Cada medição é comparada com o valor esperado (dist, angle) se o robô estivesse na pose da partícula.
+        Ajusta o peso (weight) de cada partícula com base em múltiplas medições:
+          - left_goal_measure
+          - right_goal_measure
+          - center_circle_measure
+          - left_penaltycross_measure
+          - right_penaltycross_measure
+        Cada medição é (dist, angle).
         """
-        # Defina incertezas (desvios-padrão) ou use valores diferentes para cada landmark
+        # Desvios-padrão (exemplo)
         dist_std_goal = 0.5
         angle_std_goal = 0.2
 
@@ -135,67 +153,67 @@ class MonteCarloLocalization:
         total_weight = 0.0
 
         # Se não há medições, não faz correção
-        if not any(key.endswith('_measure') for key in world_positions.keys()):
+        if not world_positions:
             return
 
         for i in range(len(self.particles)):
             x, y, theta, w = self.particles[i]
-
-            # Começamos com o peso atual da partícula
             new_weight = w
 
-            # --------------------------------------------------
-            # 1) GOAL MEASURE
-            # --------------------------------------------------
-            goal_measure = world_positions.get('goal_measure', None)
-            if goal_measure:
-                dist_med, angle_med = goal_measure
-
-                # Cálculo do esperado:
-                dx = self.goal_x - x
-                dy = self.goal_y - y
+            # 1) Left Goal
+            left_goal_measure = world_positions.get('left_goal_measure')
+            if left_goal_measure:
+                dist_med, angle_med = left_goal_measure
+                dx = self.left_goal_x - x
+                dy = self.left_goal_y - y
                 expected_dist = math.sqrt(dx*dx + dy*dy)
                 expected_angle = self._normalize_angle(math.atan2(dy, dx) - theta)
 
                 dist_error = dist_med - expected_dist
                 angle_error = self._normalize_angle(angle_med - expected_angle)
 
-                # Likelihood
                 w_dist = math.exp(-0.5 * (dist_error**2 / (dist_std_goal**2)))
                 w_angle = math.exp(-0.5 * (angle_error**2 / (angle_std_goal**2)))
-
                 new_weight *= (w_dist * w_angle)
 
-            # --------------------------------------------------
-            # 2) CENTER CIRCLE MEASURE
-            # --------------------------------------------------
-            center_measure = world_positions.get('centercircle_measure', None)
-            if center_measure:
-                dist_med, angle_med = center_measure
-
-                dx = self.centercircle_x - x
-                dy = self.centercircle_y - y
+            # 2) Right Goal
+            right_goal_measure = world_positions.get('right_goal_measure')
+            if right_goal_measure:
+                dist_med, angle_med = right_goal_measure
+                dx = self.right_goal_x - x
+                dy = self.right_goal_y - y
                 expected_dist = math.sqrt(dx*dx + dy*dy)
                 expected_angle = self._normalize_angle(math.atan2(dy, dx) - theta)
 
                 dist_error = dist_med - expected_dist
                 angle_error = self._normalize_angle(angle_med - expected_angle)
 
-                # Likelihood
-                w_dist = math.exp(-0.5 * (dist_error**2 / (dist_std_center**2)))
-                w_angle = math.exp(-0.5 * (angle_error**2 / (angle_std_center**2)))
-
+                w_dist = math.exp(-0.5 * (dist_error**2 / (dist_std_goal**2)))
+                w_angle = math.exp(-0.5 * (angle_error**2 / (angle_std_goal**2)))
                 new_weight *= (w_dist * w_angle)
 
-            # --------------------------------------------------
-            # 3) PENALTYCROSS MEASURE
-            # --------------------------------------------------
-            penalty_measure = world_positions.get('penaltycross_measure', None)
-            if penalty_measure:
-                dist_med, angle_med = penalty_measure
+            # 3) Center Circle
+            center_measure = world_positions.get('center_circle_measure')
+            if center_measure:
+                dist_med, angle_med = center_measure
+                dx = self.center_x - x
+                dy = self.center_y - y
+                expected_dist = math.sqrt(dx*dx + dy*dy)
+                expected_angle = self._normalize_angle(math.atan2(dy, dx) - theta)
 
-                dx = self.penaltycross_x - x
-                dy = self.penaltycross_y - y
+                dist_error = dist_med - expected_dist
+                angle_error = self._normalize_angle(angle_med - expected_angle)
+
+                w_dist = math.exp(-0.5 * (dist_error**2 / (dist_std_center**2)))
+                w_angle = math.exp(-0.5 * (angle_error**2 / (angle_std_center**2)))
+                new_weight *= (w_dist * w_angle)
+
+            # 4) Left Penalty Cross
+            left_pen_measure = world_positions.get('left_penaltycross_measure')
+            if left_pen_measure:
+                dist_med, angle_med = left_pen_measure
+                dx = self.left_penalty_x - x
+                dy = self.left_penalty_y - y
                 expected_dist = math.sqrt(dx*dx + dy*dy)
                 expected_angle = self._normalize_angle(math.atan2(dy, dx) - theta)
 
@@ -204,10 +222,25 @@ class MonteCarloLocalization:
 
                 w_dist = math.exp(-0.5 * (dist_error**2 / (dist_std_penalty**2)))
                 w_angle = math.exp(-0.5 * (angle_error**2 / (angle_std_penalty**2)))
-
                 new_weight *= (w_dist * w_angle)
 
-            # Atualiza o peso da partícula
+            # 5) Right Penalty Cross
+            right_pen_measure = world_positions.get('right_penaltycross_measure')
+            if right_pen_measure:
+                dist_med, angle_med = right_pen_measure
+                dx = self.right_penalty_x - x
+                dy = self.right_penalty_y - y
+                expected_dist = math.sqrt(dx*dx + dy*dy)
+                expected_angle = self._normalize_angle(math.atan2(dy, dx) - theta)
+
+                dist_error = dist_med - expected_dist
+                angle_error = self._normalize_angle(angle_med - expected_angle)
+
+                w_dist = math.exp(-0.5 * (dist_error**2 / (dist_std_penalty**2)))
+                w_angle = math.exp(-0.5 * (angle_error**2 / (angle_std_penalty**2)))
+                new_weight *= (w_dist * w_angle)
+
+            # Atualiza peso da partícula
             self.particles[i][3] = new_weight
             total_weight += new_weight
 
@@ -217,26 +250,23 @@ class MonteCarloLocalization:
                 self.particles[i][3] /= total_weight
         else:
             # Se pesos degeneraram, reinicializa
-            for i in range(len(self.particles)):
-                x, y, th, w = self.particles[i]
-                self.particles[i][3] = 1.0 / self.num_particles
+            self.particles = self._initialize_particles()
 
     def _resample(self):
         """
-        Reamostragem (Stratified ou Systematic). Aqui usamos uma abordagem simples de 'roulette wheel'.
+        Reamostragem (Roulette Wheel).
         """
         new_particles = []
         weights = [p[3] for p in self.particles]
         cumsum_weights = np.cumsum(weights)
         if cumsum_weights[-1] < 1e-9:
-            # Se a soma de pesos é quase zero, reinicializa
+            # Se soma de pesos ~ zero, reinicializa
             self.particles = self._initialize_particles()
             return
 
         for _ in range(self.num_particles):
             r = random.random() * cumsum_weights[-1]
             idx = np.searchsorted(cumsum_weights, r)
-            # Copia partícula idx e faz pequena variação
             x, y, theta, w = self.particles[idx]
             new_particles.append([x, y, theta, 1.0 / self.num_particles])
 
@@ -244,15 +274,14 @@ class MonteCarloLocalization:
 
     def get_best_estimate(self):
         """
-        Retorna a média ponderada (x, y, theta) ou a partícula de maior peso.
+        Retorna a média ponderada (x, y, theta).
         """
-        # Opção 1: média ponderada
-        # soma(x_i * w_i), soma(y_i * w_i), ...
         x_est = 0.0
         y_est = 0.0
         sin_th = 0.0
         cos_th = 0.0
         total_w = 0.0
+
         for (x, y, theta, w) in self.particles:
             x_est += x * w
             y_est += y * w
@@ -268,12 +297,11 @@ class MonteCarloLocalization:
             theta_est = math.atan2(sin_th, cos_th)
             return (x_est, y_est, theta_est)
         else:
-            # Em caso de degeneração
             return (0.0, 0.0, 0.0)
 
     def _normalize_angle(self, angle):
         """
-        Ajusta o ângulo para estar entre -pi e +pi
+        Ajusta ângulo para -pi..+pi
         """
         while angle > math.pi:
             angle -= 2*math.pi
