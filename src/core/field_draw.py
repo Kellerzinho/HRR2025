@@ -53,8 +53,8 @@ class FieldDrawer:
         # Áreas dos goleiros (retângulos)
         # Área esquerda (x: 0-1.5m, y: 2-4m)
         left_area_pts = [
-            (0, 2.0),
-            (1.5, 4.0)
+            (0, 0.5),
+            (1, 3)
         ]
         px1 = (int(left_area_pts[0][0] * self.scale), int(field_height - left_area_pts[0][1] * self.scale))
         px2 = (int(left_area_pts[1][0] * self.scale), int(field_height - left_area_pts[1][1] * self.scale))
@@ -62,8 +62,8 @@ class FieldDrawer:
         
         # Área direita (x: 7.5-9m, y: 2-4m)
         right_area_pts = [
-            (7.5, 2.0),
-            (9.0, 4.0)
+            (4.5, 0.5),
+            (5.5, 3)
         ]
         px1 = (int(right_area_pts[0][0] * self.scale), int(field_height - right_area_pts[0][1] * self.scale))
         px2 = (int(right_area_pts[1][0] * self.scale), int(field_height - right_area_pts[1][1] * self.scale))
@@ -75,7 +75,7 @@ class FieldDrawer:
         # Círculo central (raio 0.75m para maior visibilidade)
         center_x = field_map["center_circle_x"] * self.scale
         center_y = field_height - field_map["center_circle_y"] * self.scale
-        radius = int(0.75 * self.scale)
+        radius = int(0.5 * self.scale)
         cv2.circle(field_img, (int(center_x), int(center_y)), radius, (255, 255, 255), 2)
         
         # Desenhar símbolo do IME

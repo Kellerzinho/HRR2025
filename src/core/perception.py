@@ -10,7 +10,7 @@ class Perception:
     em coordenadas do robô/campo.
     """
 
-    def __init__(self, camera_matrix=None, dist_coeffs=None, camera_height=0.3, alpha=0.98):
+    def __init__(self, camera_matrix=None, dist_coeffs=None, camera_height=0.25, alpha=0.98):
         """
         :param camera_matrix: Matriz intrínseca da câmera (np.array 3x3) para projeção.
         :param dist_coeffs: Coeficientes de distorção (array).

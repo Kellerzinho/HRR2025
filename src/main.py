@@ -27,7 +27,7 @@ def main():
     # 1) Inicialização
     camera = Camera("config/camera_calibration.yaml", width=640, height=480, index=0)
     vision = VisionSystem(model_path="models/best.pt", conf_threshold=0.5)
-    perception = Perception(camera_matrix=None, dist_coeffs=None, camera_height=0.30, alpha=0.98)
+    perception = Perception(camera_matrix=None, dist_coeffs=None, camera_height=0.25, alpha=0.98)
 
     # Carrega configurações do campo (com várias referências)
     field_map = load_config("data/maps/field_map.json")

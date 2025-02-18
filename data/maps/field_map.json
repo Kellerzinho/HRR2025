@@ -1,14 +1,14 @@
 {
-  "width": 9.0,
-  "height": 6.0,
+  "width": 5.5,
+  "height": 3.5,
   "left_goal_x": 0.0,
-  "left_goal_y": 3.0,
-  "right_goal_x": 9.0,
-  "right_goal_y": 3.0,
-  "center_circle_x": 4.5,
-  "center_circle_y": 3.0,
-  "left_penaltycross_x": 1.5,
-  "left_penaltycross_y": 3.0,
-  "right_penaltycross_x": 7.5,
-  "right_penaltycross_y": 3.0
+  "left_goal_y": 1.75,
+  "right_goal_x": 5.5,
+  "right_goal_y": 1.75,
+  "center_circle_x": 2.75,
+  "center_circle_y": 1.75,
+  "left_penaltycross_x": 0.75,
+  "left_penaltycross_y": 1.75,
+  "right_penaltycross_x": 4.75,
+  "right_penaltycross_y": 1.75
 }
