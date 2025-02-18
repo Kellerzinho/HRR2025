@@ -1,5 +1,3 @@
-# src/main.py
-
 import time
 import math
 import cv2
@@ -12,6 +10,7 @@ from core.slam import MonteCarloLocalization
 from core.imu import IMUReader
 from core.odometry import OdometryState
 from core.field_draw import FieldDrawer
+from core.ball_tracker import BallTracker
 from utils.config_loader import load_config
 
 def main():
@@ -26,18 +25,20 @@ def main():
 
     # 1) Inicialização
     camera = Camera("config/camera_calibration.yaml", width=640, height=480, index=0)
-    vision = VisionSystem(model_path="models/best.pt", conf_threshold=0.5)
+    vision = VisionSystem(model_path="models/best.pt", conf_threshold=0.4)
     perception = Perception(camera_matrix=None, dist_coeffs=None, camera_height=0.25, alpha=0.98)
 
     # Carrega configurações do campo (com várias referências)
     field_map = load_config("data/maps/field_map.json")
 
-    slam = MonteCarloLocalization(field_map=field_map, num_particles=300, x_var=0.1, y_var=0.1, theta_var=0.1)
-
+    slam = MonteCarloLocalization(field_map=field_map, num_particles=10000, x_var=0.1, y_var=0.1, theta_var=0.1)
+    # Instancia o rastreador de bola
+    ball_tracker = BallTracker(dt=0.02, process_std=0.5, measurement_std=0.2)
     imu_reader = IMUReader(mpu_address=0x68, ak_address=0x0C, bus_id=1)
     odom_state = OdometryState()
 
     field_drawer = FieldDrawer(scale=100)
+
 
     last_time = time.time()
 
@@ -63,15 +64,14 @@ def main():
 
             # 4) Converter detecções para (x, y) no campo
             world_positions_xy = perception.process_detections(detections)
-            # ex.: {
-            #   'left_goal': [(x,y), ...],
-            #   'right_goal': [(x,y), ...],
-            #   ...
-            # }
+            print("[Main] world_positions_xy:", world_positions_xy)
+
 
             # 5) Odometria via aceleração do IMU
             dx, dy, dtheta = odom_state.compute_odometry_from_imu(perception)
             odom = (dx, dy, dtheta)
+
+            
 
             # 6) Converter cada landmark detectado em (dist, angle)
             slam_world_positions = {}
@@ -114,11 +114,27 @@ def main():
             if len(pc_measure_list) > 0:
                 slam_world_positions["penaltycross_measure"] = pc_measure_list
 
-            if "ball" in world_positions_xy:
-                extra_landmarks["ball"] = world_positions_xy["ball"]
-            # Se você tiver linhas e robôs detectados, pode adicioná-los também:
-            #if "line" in world_positions_xy:
-                #extra_landmarks["line"] = world_positions_xy["line"]
+            # 1) Predict do ball_tracker
+            ball_tracker.predict(dt)
+
+            # 2) Se foi detectada bola
+            ball_positions = world_positions_xy.get('ball', [])
+            if len(ball_positions) > 0:
+                # Considera a primeira bola detectada (ou faça média se tiver mais de uma)
+                bx, by = ball_positions[0]
+                # Faz o update do Kalman
+                ball_tracker.update((bx, by))
+
+            # 3) Pega a estimativa do Kalman
+            x_ball_est, y_ball_est, vx_ball_est, vy_ball_est = ball_tracker.get_state()
+
+            if "ball" in world_positions_xy and len(world_positions_xy["ball"]) > 0:
+                extra_landmarks["ball"] = [(x_ball_est, y_ball_est)]
+                extra_landmarks["ball_velocity"] = (vx_ball_est, vy_ball_est)
+                print("[Main] extra_landmarks['ball']:", extra_landmarks["ball"])
+            else:
+                print("[Main] Bola não encontrada em world_positions_xy")
+
             if "robot" in world_positions_xy:
                 extra_landmarks["robot"] = world_positions_xy["robot"]
 

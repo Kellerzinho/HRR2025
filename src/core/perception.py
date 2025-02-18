@@ -1,7 +1,8 @@
 import time
-import math
 import numpy as np
+import yaml
 from collections import deque
+import math
 
 class Perception:
     """
@@ -10,18 +11,53 @@ class Perception:
     em coordenadas do robô/campo.
     """
 
-    def __init__(self, camera_matrix=None, dist_coeffs=None, camera_height=0.25, alpha=0.98):
+    def __init__(self, camera_matrix=None, dist_coeffs=None, camera_height=0.25, alpha=0.98, calibration_file="config/camera_calibration.yaml"):
         """
         :param camera_matrix: Matriz intrínseca da câmera (np.array 3x3) para projeção.
         :param dist_coeffs: Coeficientes de distorção (array).
-        :param camera_height: Altura (em metros) da câmera em relação ao chão (aprox. para cálculo de distância).
+        :param camera_height: Altura (em metros) da câmera em relação ao chão (para cálculo de distância).
         :param alpha: Coeficiente do Filtro Complementar (entre 0 e 1).
+        :param calibration_file: Caminho para o arquivo YAML com parâmetros de calibração.
         """
-        self.camera_matrix = camera_matrix  # ex.: carregada do camera_calibration.yaml
+        # Se os parâmetros de calibração não foram fornecidos, tenta carregá-los do arquivo
+        if camera_matrix is None or dist_coeffs is None:
+            try:
+                with open(calibration_file, 'r') as f:
+                    calib_data = yaml.safe_load(f)
+                # Carrega a câmera matrix: pode estar em formato de dict ou lista
+                cam_info = calib_data.get("camera_matrix", None)
+                if cam_info is not None:
+                    if isinstance(cam_info, dict):
+                        data = cam_info.get("data", [])
+                        rows = cam_info.get("rows", 3)
+                        cols = cam_info.get("cols", 3)
+                        if len(data) == rows * cols:
+                            camera_matrix = np.array(data, dtype=np.float32).reshape((rows, cols))
+                        else:
+                            print("[Perception] Dados da camera_matrix com tamanho inesperado.")
+                    elif isinstance(cam_info, list):
+                        # Se já for uma lista de listas
+                        camera_matrix = np.array(cam_info, dtype=np.float32)
+                else:
+                    print("[Perception] camera_matrix não encontrada no arquivo de calibração.")
+
+                # Carrega os coeficientes de distorção
+                dcoeffs = calib_data.get("dist_coeffs", None)
+                if dcoeffs is not None:
+                    dist_coeffs = np.array(dcoeffs, dtype=np.float32)
+                else:
+                    print("[Perception] dist_coeffs não encontrados no arquivo de calibração.")
+
+            except Exception as e:
+                print("[Perception] Erro ao carregar calibração:", e)
+                camera_matrix = None
+                dist_coeffs = None
+
+        self.camera_matrix = camera_matrix
         self.dist_coeffs = dist_coeffs
         self.camera_height = camera_height
 
-        # Buffer de dados do IMU (para sincronizar se necessário)
+        # Buffer de dados do IMU (para sincronizar, se necessário)
         self.imu_data_queue = deque(maxlen=100)
 
         # Estado de orientação (yaw, pitch, roll) estimado
@@ -31,8 +67,9 @@ class Perception:
 
         # Ganho do filtro complementar
         self.alpha = alpha
-        # Para armazenar timestamp anterior, se necessário
+        # Timestamp para integração do IMU
         self.last_time = time.time()
+
 
     def update_imu_data(self, imu_data):
         """
@@ -216,6 +253,8 @@ class Perception:
                     pos = self.compute_world_coords(det, method='simple')
                     if pos:
                         world_positions[label].append(pos)
+                        if label == 'ball':
+                            print("[Perception] Bola detectada em coordenadas:", pos)
 
                 elif label == 'goal':
                     # Com "goal", muitas vezes é um contorno grande; se quisermos

@@ -7,26 +7,26 @@ class MonteCarloLocalization:
     Implementa um Filtro de Partículas (Monte Carlo Localization)
     para um campo de futebol de robôs.
     """
-    def __init__(self, field_map, num_particles=200, x_var=0.1, y_var=0.1, theta_var=0.1):
+    def __init__(self, field_map, num_particles=10000, x_var=0.1, y_var=0.1, theta_var=0.1):
         self.field_map = field_map
-        self.width = field_map.get('width', 9.0)
-        self.height = field_map.get('height', 6.0)
+        self.width = field_map.get('width', 5.5)
+        self.height = field_map.get('height', 3.5)
 
         # Goleiras (coordenadas)
         self.left_goal_x = field_map.get('left_goal_x', 0.0)
-        self.left_goal_y = field_map.get('left_goal_y', 3.0)
-        self.right_goal_x = field_map.get('right_goal_x', 9.0)
-        self.right_goal_y = field_map.get('right_goal_y', 3.0)
+        self.left_goal_y = field_map.get('left_goal_y', 1.75)
+        self.right_goal_x = field_map.get('right_goal_x', 5.5)
+        self.right_goal_y = field_map.get('right_goal_y', 1.75)
 
         # Círculo central
-        self.center_x = field_map.get('center_circle_x', 4.5)
-        self.center_y = field_map.get('center_circle_y', 3.0)
+        self.center_x = field_map.get('center_circle_x', 2.75)
+        self.center_y = field_map.get('center_circle_y', 1.75)
 
         # Penalty crosses
-        self.left_penalty_x = field_map.get('left_penaltycross_x', 1.5)
-        self.left_penalty_y = field_map.get('left_penaltycross_y', 3.0)
-        self.right_penalty_x = field_map.get('right_penaltycross_x', 7.5)
-        self.right_penalty_y = field_map.get('right_penaltycross_y', 3.0)
+        self.left_penalty_x = field_map.get('left_penaltycross_x', 0.75)
+        self.left_penalty_y = field_map.get('left_penaltycross_y', 1.75)
+        self.right_penalty_x = field_map.get('right_penaltycross_x', 4.75)
+        self.right_penalty_y = field_map.get('right_penaltycross_y', 1.75)
 
         self.num_particles = num_particles
         self.x_var = x_var

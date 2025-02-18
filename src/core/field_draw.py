@@ -125,10 +125,24 @@ class FieldDrawer:
         if extra_landmarks is not None:
             # Desenhar a bola como um círculo vermelho
             if "ball" in extra_landmarks:
+                print("[FieldDrawer] Desenhando", len(extra_landmarks["ball"]), "bola(s)")
                 for (bx, by) in extra_landmarks["ball"]:
                     bx_px = int(bx * self.scale)
                     by_px = int(field_height - by * self.scale)
                     cv2.circle(field_img, (bx_px, by_px), 6, (0, 0, 255), -1)
+
+                # Se também houver velocidade da bola, desenhar uma flecha
+                    if "ball_velocity" in extra_landmarks:
+                        vx, vy = extra_landmarks["ball_velocity"]
+                        # Defina um fator de escala para converter velocidade para pixels (ajuste conforme necessário)
+                        scale_v = 50  # Exemplo: 50 pixels por (m/s)
+                        # Calcular o ponto final da flecha (lembre que o eixo Y é invertido na imagem)
+                        end_x = int(bx_px + vx * scale_v)
+                        end_y = int(by_px - vy * scale_v)
+                        cv2.arrowedLine(field_img, (bx_px, by_px), (end_x, end_y), (0, 255, 0), 2, tipLength=0.3)
+            
+            else:
+                print("[FieldDrawer] Nenhuma bola recebida para desenhar")
             
             # Exemplo para linhas: desenha como pequenos pontos verdes
             #if "line" in extra_landmarks:

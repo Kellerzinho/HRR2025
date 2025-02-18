@@ -4,7 +4,7 @@ from ultralytics import YOLO
 
 
 class VisionSystem:
-    def __init__(self, model_path="models/best.pt", conf_threshold=0.2):
+    def __init__(self, model_path="models/best.pt", conf_threshold=0.4):
         """
         Classe para executar detecção/segmentação de landmarks (ball, centercircle, goal, line, penaltycross, robot).
         
@@ -159,44 +159,36 @@ class VisionSystem:
 
     def draw_segmentations(self, frame, detections):
         """
-        Desenha as segmentações/contornos na imagem, útil para debug.
-        Pode exibir bounding boxes ou contornos conforme o label.
+        Desenha as segmentações completas (máscaras) na imagem, útil para depuração.
+        Cada máscara é sobreposta com uma transparência para visualizar os contornos dos objetos.
         """
         color_map = {
-            'ball': (0, 0, 255),           # Vermelho 
-            'centercircle': (128, 0, 128), # Roxo 
-            'goal': (255, 0, 0),           # Azul 
-            'line': (255, 255, 0),         # Ciano 
-            'penaltycross': (255, 0, 255), # Magenta 
+            'ball': (0, 0, 255),           # Vermelho
+            'centercircle': (128, 0, 128), # Roxo
+            'goal': (255, 0, 0),           # Azul
+            'line': (255, 255, 0),         # Ciano
+            'penaltycross': (255, 0, 255), # Magenta
             'robot': (0, 255, 255)         # Amarelo
         }
-
+        
+        # Para cada tipo de detecção (label) e lista de detecções
         for label, det_list in detections.items():
+            # Obtém a cor definida para o label
+            c = color_map.get(label, (255, 255, 255))
             for det in det_list:
-                c = color_map.get(label, (255, 255, 255))
-                # Se tivermos contorno
-                if 'contour' in det and det['contour'] is not None:
-                    cont = det['contour']
-                    if len(cont.shape) < 3:
-                        cont = cont.reshape(-1, 1, 2)
-                    cv2.drawContours(frame, [cont], -1, c, 2)
-
-                # Se for bola, circle center, penalty cross, etc.
-                if label in ['ball', 'centercircle', 'penaltycross']:
-                    cx = det.get('cx') or (det.get('center')[0] if 'center' in det else None)
-                    cy = det.get('cy') or (det.get('center')[1] if 'center' in det else None)
-                    r  = det.get('radius', 0)
-                    if cx is not None and cy is not None:
-                        cv2.circle(frame, (int(cx), int(cy)), int(r), c, 2)
-
-                # Podemos também desenhar bounding box
-                bbox = det.get('bbox', None)
-                if bbox is not None:
-                    x1, y1, x2, y2 = map(int, bbox)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), c, 2)
-                    # Exibe label
-                    conf = det['conf']
-                    cv2.putText(frame, f"{label} {conf:.2f}", (x1, y1 - 5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, c, 2)
-
+                # Se a detecção possui uma máscara
+                if 'mask' in det:
+                    mask = det['mask']
+                    # Certifique-se de que a máscara é do tipo uint8
+                    if mask.dtype != np.uint8:
+                        mask = mask.astype(np.uint8)
+                    # Crie um overlay com a cor desejada
+                    overlay = np.zeros_like(frame, dtype=np.uint8)
+                    overlay[:] = c
+                    # Use a máscara para extrair apenas a área colorida
+                    colored_mask = cv2.bitwise_and(overlay, overlay, mask=mask)
+                    # Misture o overlay colorido com a imagem original (alpha controla a transparência)
+                    alpha = 0.5
+                    frame = cv2.addWeighted(frame, 1.0, colored_mask, alpha, 0)
+                    
         return frame
