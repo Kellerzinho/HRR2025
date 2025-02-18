@@ -37,7 +37,7 @@ class FieldDrawer:
         
         return background
 
-    def draw_field(self, field_map, robot_pose):
+    def draw_field(self, field_map, robot_pose, extra_landmarks=None):
         width_m = field_map["width"]
         height_m = field_map["height"]
         field_width = int(width_m * self.scale)
@@ -120,5 +120,29 @@ class FieldDrawer:
             [robot_px + int(size/2 * math.cos(theta - 2.5)), robot_py - int(size/2 * math.sin(theta - 2.5))]
         ])
         cv2.fillConvexPoly(field_img, pts, (0, 255, 255))
+
+        # Desenhar landmarks extras, se houver
+        if extra_landmarks is not None:
+            # Desenhar a bola como um círculo vermelho
+            if "ball" in extra_landmarks:
+                for (bx, by) in extra_landmarks["ball"]:
+                    bx_px = int(bx * self.scale)
+                    by_px = int(field_height - by * self.scale)
+                    cv2.circle(field_img, (bx_px, by_px), 6, (0, 0, 255), -1)
+            
+            # Exemplo para linhas: desenha como pequenos pontos verdes
+            #if "line" in extra_landmarks:
+                #for (lx, ly) in extra_landmarks["line"]:
+                #    lx_px = int(lx * self.scale)
+                #    ly_px = int(field_height - ly * self.scale)
+                #    cv2.circle(field_img, (lx_px, ly_px), 4, (0, 255, 0), -1)
+            
+            # Exemplo para outros robôs: desenha como círculos magenta
+            if "robot" in extra_landmarks:
+                for (rx, ry) in extra_landmarks["robot"]:
+                    rx_px = int(rx * self.scale)
+                    ry_px = int(field_height - ry * self.scale)
+                    cv2.circle(field_img, (rx_px, ry_px), 8, (255, 0, 255), -1)
+        
         
         return field_img

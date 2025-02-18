@@ -239,9 +239,15 @@ class Perception:
                     pass
 
                 elif label == 'robot':
-                    # Se estivermos detectando outros robôs, podemos
-                    # transformar a bounding box em coords de campo,
-                    # ou apenas armazenar a bounding box em um array
-                    pass
+                    bbox = det.get('bbox', None)
+                    if bbox:
+                        x1, y1, x2, y2 = bbox
+                        cx = (x1 + x2) / 2
+                        cy = (y1 + y2) / 2
+                        temp_det = {'cx': cx, 'cy': cy}
+                        pos = self.compute_world_coords(temp_det, method='simple')
+                        if pos:
+                            world_positions[label].append(pos)
+
 
         return world_positions

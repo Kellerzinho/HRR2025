@@ -75,6 +75,7 @@ def main():
 
             # 6) Converter cada landmark detectado em (dist, angle)
             slam_world_positions = {}
+            extra_landmarks = {}
 
             goals = world_positions_xy.get("goal", [])
             goal_measure_list = []
@@ -113,6 +114,14 @@ def main():
             if len(pc_measure_list) > 0:
                 slam_world_positions["penaltycross_measure"] = pc_measure_list
 
+            if "ball" in world_positions_xy:
+                extra_landmarks["ball"] = world_positions_xy["ball"]
+            # Se você tiver linhas e robôs detectados, pode adicioná-los também:
+            #if "line" in world_positions_xy:
+                #extra_landmarks["line"] = world_positions_xy["line"]
+            if "robot" in world_positions_xy:
+                extra_landmarks["robot"] = world_positions_xy["robot"]
+
 
             # 7) Atualiza SLAM
             slam.update(odom, dt, slam_world_positions)
@@ -125,7 +134,7 @@ def main():
             cv2.imshow("Debug Vision+SLAM", debug_frame)
             
             # 9) Desenha o campo e a posição do robô
-            field_img = field_drawer.draw_field(field_map, (x_est, y_est, theta_est))
+            field_img = field_drawer.draw_field(field_map, (x_est, y_est, theta_est), extra_landmarks)
             cv2.imshow("Campo - Posição do Robô", field_img)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
