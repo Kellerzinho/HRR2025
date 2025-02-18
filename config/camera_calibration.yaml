@@ -1,14 +1,13 @@
 camera_matrix:
   rows: 3
   cols: 3
-  data: [fx, 0, cx, 0, fy, cy, 0, 0, 1]
+  data: [868.7294478967913, 0.0, 270.58638444283866,
+         0.0, 878.7865125564125, 131.2476089118016,
+         0.0, 0.0, 1.0]
 
-dist_coeffs: [k1, k2, p1, p2, k3]
+dist_coeffs: [0.2680756381591087, -1.629380954290668, -0.058536953993680106,
+              -0.01668948901098457, 9.859233430325935]
 
-offsets: # possíveis offsets de posição/rotação entre câmera e torso
-  camera_tx: 0.02
-  camera_ty: 0.00
-  camera_tz: 0.10
-  camera_rx: 0.0
-  camera_ry: 0.0
-  camera_rz: 0.0
+resolution:
+  width: 640
+  height: 480

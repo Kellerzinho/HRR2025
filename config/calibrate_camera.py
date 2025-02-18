@@ -5,7 +5,7 @@ import yaml
 
 # Configurações
 CHECKERBOARD = (8,5)  # Número de cantos INTERNOS (linhas-1, colunas-1)
-SQUARE_SIZE = 0.024   # Tamanho do quadrado em metros (ajuste conforme sua impressão)
+SQUARE_SIZE = 0.024   # Tamanho do quadrado em metros
 
 # Preparar pontos do objeto 3D
 objp = np.zeros((CHECKERBOARD[0]*CHECKERBOARD[1],3), np.float32)
@@ -55,16 +55,23 @@ if len(objpoints) >= 10:
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
         objpoints, imgpoints, gray.shape[::-1], None, None)
     
-    # Salvar resultados
-    data = {
-        'camera_matrix': mtx.tolist(),
-        'dist_coeffs': dist.tolist(),
-        'resolution': [int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                       int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))]
+    # Converter para o formato desejado
+    calibration_data = {
+        'camera_matrix': {
+            'rows': int(mtx.shape[0]),
+            'cols': int(mtx.shape[1]),
+            'data': mtx.flatten().tolist()
+        },
+        'dist_coeffs': dist.flatten().tolist(),
+        'resolution': {
+            'width': int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            'height': int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        }
     }
     
+    # Salvar em YAML com formatação específica
     with open("config/camera_calibration.yaml", 'w') as f:
-        yaml.dump(data, f)
+        yaml.dump(calibration_data, f, default_flow_style=None, sort_keys=False)
     
     print(f"Calibração concluída!\nErro RMS: {ret}\nSalvo em camera_calibration.yaml")
 else:
