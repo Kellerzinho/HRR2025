@@ -76,18 +76,21 @@ def main():
             # 6) Converter cada landmark detectado em (dist, angle)
             slam_world_positions = {}
 
-            # Exemplo: se 'left_goal' foi detectado
-            if 'left_goal' in world_positions_xy and len(world_positions_xy['left_goal']) > 0:
-                lx, ly = world_positions_xy['left_goal'][0]
-                dist_lg = math.sqrt(lx*lx + ly*ly)
-                angle_lg = math.atan2(ly, lx)
-                slam_world_positions['left_goal_measure'] = (dist_lg, angle_lg)
+            goals = world_positions_xy.get("goal", [])
+            goal_measure_list = []
+            for (gx, gy) in goals:
+                dist_g = math.sqrt(gx*gx + gy*gy)
+                angle_g = math.atan2(gy, gx)
+                # Decide se é "left" ou "right" baseado no x
+                if gx < field_map["width"] / 2:
+                    side = "left"
+                else:
+                    side = "right"
+                goal_measure_list.append((dist_g, angle_g, side))
 
-            if 'right_goal' in world_positions_xy and len(world_positions_xy['right_goal']) > 0:
-                rx, ry = world_positions_xy['right_goal'][0]
-                dist_rg = math.sqrt(rx*rx + ry*ry)
-                angle_rg = math.atan2(ry, rx)
-                slam_world_positions['right_goal_measure'] = (dist_rg, angle_rg)
+            # Armazena na dict do SLAM
+            if len(goal_measure_list) > 0:
+                slam_world_positions["goal_measure"] = goal_measure_list
 
             if 'center_circle' in world_positions_xy and len(world_positions_xy['center_circle']) > 0:
                 cx, cy = world_positions_xy['center_circle'][0]
@@ -95,17 +98,21 @@ def main():
                 angle_cc = math.atan2(cy, cx)
                 slam_world_positions['center_circle_measure'] = (dist_cc, angle_cc)
 
-            if 'left_penaltycross' in world_positions_xy and len(world_positions_xy['left_penaltycross']) > 0:
-                px, py = world_positions_xy['left_penaltycross'][0]
-                dist_lp = math.sqrt(px*px + py*py)
-                angle_lp = math.atan2(py, px)
-                slam_world_positions['left_penaltycross_measure'] = (dist_lp, angle_lp)
+            # Mesma ideia para penaltycross
+            pcs = world_positions_xy.get("penaltycross", [])
+            pc_measure_list = []
+            for (px, py) in pcs:
+                dist_pc = math.sqrt(px*px + py*py)
+                angle_pc = math.atan2(py, px)
+                if px < field_map["width"] / 2:
+                    side = "left"
+                else:
+                    side = "right"
+                pc_measure_list.append((dist_pc, angle_pc, side))
 
-            if 'right_penaltycross' in world_positions_xy and len(world_positions_xy['right_penaltycross']) > 0:
-                px, py = world_positions_xy['right_penaltycross'][0]
-                dist_rp = math.sqrt(px*px + py*py)
-                angle_rp = math.atan2(py, px)
-                slam_world_positions['right_penaltycross_measure'] = (dist_rp, angle_rp)
+            if len(pc_measure_list) > 0:
+                slam_world_positions["penaltycross_measure"] = pc_measure_list
+
 
             # 7) Atualiza SLAM
             slam.update(odom, dt, slam_world_positions)

@@ -4,7 +4,7 @@ from ultralytics import YOLO
 
 
 class VisionSystem:
-    def __init__(self, model_path="models/best.pt", conf_threshold=0.5):
+    def __init__(self, model_path="models/best.pt", conf_threshold=0.2):
         """
         Classe para executar detecção/segmentação de landmarks (ball, centercircle, goal, line, penaltycross, robot).
         
