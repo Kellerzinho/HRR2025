@@ -3,6 +3,7 @@ import numpy as np
 import yaml
 from collections import deque
 import math
+import cv2
 
 class Perception:
     """
@@ -31,10 +32,8 @@ class Perception:
                         data = cam_info.get("data", [])
                         rows = cam_info.get("rows", 3)
                         cols = cam_info.get("cols", 3)
-                        if len(data) == rows * cols:
-                            camera_matrix = np.array(data, dtype=np.float32).reshape((rows, cols))
-                        else:
-                            print("[Perception] Dados da camera_matrix com tamanho inesperado.")
+                        camera_matrix = np.array(data, dtype=np.float32).reshape((rows, cols))
+
                     elif isinstance(cam_info, list):
                         # Se já for uma lista de listas
                         camera_matrix = np.array(cam_info, dtype=np.float32)
@@ -56,6 +55,7 @@ class Perception:
         self.camera_matrix = camera_matrix
         self.dist_coeffs = dist_coeffs
         self.camera_height = camera_height
+        self.mag_bias = np.array([0.0, 0.0, 0.0])
 
         # Buffer de dados do IMU (para sincronizar, se necessário)
         self.imu_data_queue = deque(maxlen=100)
@@ -82,6 +82,10 @@ class Perception:
                'mag': (mx, my, mz)    # campo magnético
             }
         """
+         # Aplicar correção de hard-iron
+        imu_data['mag'] = (imu_data['mag'][0] - self.mag_bias[0],
+                        imu_data['mag'][1] - self.mag_bias[1],
+                        imu_data['mag'][2] - self.mag_bias[2])
         self.imu_data_queue.append(imu_data)
 
     def fuse_orientation(self):
@@ -96,10 +100,19 @@ class Perception:
         data = self.imu_data_queue[-1]
         now = data['timestamp']
         gx, gy, gz = data['gyro']
+        ax, ay, az = data['accel']
         mx, my, mz = data['mag']
 
         dt = now - self.last_time if self.last_time is not None else 0.01
         self.last_time = now
+
+        # Correção de pitch/roll via acelerômetro (filtro complementar)
+        pitch_acc = math.atan2(-ax, math.sqrt(ay**2 + az**2))
+        roll_acc = math.atan2(ay, az)
+        
+        # Atualiza pitch e roll com filtro
+        self.pitch = self.alpha * (self.pitch + gy * dt) + (1 - self.alpha) * pitch_acc
+        self.roll = self.alpha * (self.roll + gx * dt) + (1 - self.alpha) * roll_acc
 
         # 1) Atualização via giroscópio (integração)
         #   yaw += gz * dt, pitch += gy * dt, roll += gx * dt (ex.: aproximando eixos)
@@ -136,7 +149,7 @@ class Perception:
             angle += 2 * math.pi
         return angle
 
-    def compute_world_coords(self, detection, method='simple'):
+    def compute_world_coords(self, detection, method='advanced'):
         """
         Converte dados de detecção (ex.: centro da bola em pixel) para coordenadas
         no referencial do robô ou do campo.
@@ -150,69 +163,53 @@ class Perception:
         cx = detection.get('cx', None)
         cy = detection.get('cy', None)
         if cx is None or cy is None:
+            print("[Perception] Dados de detecção inválidos:", detection)
             return None
 
         if self.camera_matrix is None:
             # Sem calibracao, não sabemos converter com precisão
             # Vamos retornar algo nulo ou um placeholder
+            print("[Perception] Sem matriz de câmera, não é possível calcular coordenadas.")
             return None
 
-        # Parâmetros da câmera
-        fx = self.camera_matrix[0, 0]
-        fy = self.camera_matrix[1, 1]
-        cx0 = self.camera_matrix[0, 2]  # principal point x
-        cy0 = self.camera_matrix[1, 2]  # principal point y
-
-        # Supondo que a bola está no chão e a câmera está a self.camera_height do chão
-        # => Z = 0 (no referencial do campo), mas a câmera está a +camera_height
-        # Esse approach assume um "pin-hole" e um triângulo simples:
-        # Y (campo) = camera_height
-        # focal = fx ou fy
-        # (cx - cx0) => desloc. horizontal
-        # (cy - cy0) => desloc. vertical
-        # Distância é ~ camera_height / tan(theta)
-
-        # Exemplo simplificado:
-        # dZ = self.camera_height
-        # Angulo vertical da bola:
-        dy_pixels = (cy - cy0)
-        # Se dy_pixels > 0, significa que está abaixo do centro da imagem
-        # Razão pixel -> rad = arctan(dy_pixels / fy)
-
-        if method == 'simple':
-            # Tenta estimar a "distância na horizontal" e "lateral" assumindo um plano
-            # e a altura self.camera_height
-            # Esse é um mock: a forma exata requer geometria mais robusta
-            angle_down = math.atan2(dy_pixels, fy)  # ângulo pra baixo em rad
-            # Distância da câmera até o ponto no chão:
-            dist_forward = self.camera_height / math.tan(abs(angle_down)) if angle_down != 0 else 999
-            # Agora, o deslocamento horizontal (x) depende de (cx - cx0)
-            dx_pixels = (cx - cx0)
-            angle_side = math.atan2(dx_pixels, fx)
-            dist_side = dist_forward * math.tan(angle_side)
-
-            # No referencial da câmera (frente = +X, esquerda = +Y, se quiser)
-            # Ou no ref do robô (frente = +X, esquerda = +Y, etc.)
-            x_cam = dist_forward
-            y_cam = dist_side
-
-            # Ajuste usando yaw do robô
-            # Se yaw = 0 significa que a frente do robô e do campo coincidem
-            # Rotação 2D:
-            cos_y = math.cos(self.yaw)
-            sin_y = math.sin(self.yaw)
-
-            # Transforma coords (x_cam, y_cam) do robo => do campo
-            x_field = x_cam * cos_y - y_cam * sin_y
-            y_field = x_cam * sin_y + y_cam * cos_y
-
-            return (x_field, y_field)
-
-        else:
-            # Outros métodos (por exemplo, projetar contorno 3D)
-            pass
-
-        return None
+        # Passo 1: Correção de distorção
+        src_pts = np.array([[[cx, cy]]], dtype=np.float32)
+        dst_pts = cv2.undistortPoints(src_pts, self.camera_matrix, self.dist_coeffs)
+        u_norm, v_norm = dst_pts[0,0]
+        
+        # Passo 2: Vetor de direção normalizado
+        x = (u_norm - self.camera_matrix[0,2]) / self.camera_matrix[0,0]
+        y = (v_norm - self.camera_matrix[1,2]) / self.camera_matrix[1,1]
+        dir_cam = np.array([x, y, 1.0])
+        
+        # Passo 3: Rotação considerando pitch/roll/yaw
+        R = self._euler_to_rotation_matrix(self.roll, self.pitch, self.yaw)
+        dir_world = R @ dir_cam
+        
+        # Passo 4: Interseção com o plano Z=0 (chão)
+        if dir_world[2] == 0:
+            return None
+        t = -self.camera_height / dir_world[2]
+        x = dir_world[0] * t
+        y = dir_world[1] * t
+        
+        return (x, y)
+    
+    def _euler_to_rotation_matrix(self, roll, pitch, yaw):
+        # Implementação correta da matriz de rotação ZYX
+        R_x = np.array([[1, 0, 0],
+                        [0, math.cos(roll), -math.sin(roll)],
+                        [0, math.sin(roll), math.cos(roll)]])
+        
+        R_y = np.array([[math.cos(pitch), 0, math.sin(pitch)],
+                        [0, 1, 0],
+                        [-math.sin(pitch), 0, math.cos(pitch)]])
+        
+        R_z = np.array([[math.cos(yaw), -math.sin(yaw), 0],
+                        [math.sin(yaw), math.cos(yaw), 0],
+                        [0, 0, 1]])
+        
+        return R_z @ R_y @ R_x
 
     def process_detections(self, all_detections):
         """
@@ -250,7 +247,7 @@ class Perception:
             for det in det_list:
                 if label in ['ball', 'centercircle', 'penaltycross']:
                     # Supondo que cada det tem (cx, cy)
-                    pos = self.compute_world_coords(det, method='simple')
+                    pos = self.compute_world_coords(det)
                     if pos:
                         world_positions[label].append(pos)
                         if label == 'ball':
@@ -282,9 +279,9 @@ class Perception:
                     if bbox:
                         x1, y1, x2, y2 = bbox
                         cx = (x1 + x2) / 2
-                        cy = (y1 + y2) / 2
+                        cy = y2
                         temp_det = {'cx': cx, 'cy': cy}
-                        pos = self.compute_world_coords(temp_det, method='simple')
+                        pos = self.compute_world_coords(temp_det)
                         if pos:
                             world_positions[label].append(pos)
 

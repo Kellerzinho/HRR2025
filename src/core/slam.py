@@ -41,7 +41,7 @@ class MonteCarloLocalization:
         Exemplo: se o robô inicia no (0,0).
         """
         particles = []
-        x0, y0 = 2.75, 1.75
+        x0, y0 = 0, 0
         for _ in range(self.num_particles):
             x = random.gauss(x0, 0.2)
             y = random.gauss(y0, 0.2)
