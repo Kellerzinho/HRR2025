@@ -5,7 +5,7 @@ import yaml
 
 # Configurações
 CHECKERBOARD = (8,5)  # Número de cantos INTERNOS (linhas-1, colunas-1)
-SQUARE_SIZE = 0.024   # Tamanho do quadrado em metros
+SQUARE_SIZE = 0.026   # Tamanho do quadrado em metros
 
 # Preparar pontos do objeto 3D
 objp = np.zeros((CHECKERBOARD[0]*CHECKERBOARD[1],3), np.float32)

@@ -159,7 +159,6 @@ class Perception:
         :return: (X, Y) em coordenadas do robô/campo (depende do seu frame de referência).
         """
 
-        # Exemplo: se for a bola (label='ball'), obtemos (cx, cy) do image space
         cx = detection.get('cx', None)
         cy = detection.get('cy', None)
         if cx is None or cy is None:
@@ -167,34 +166,32 @@ class Perception:
             return None
 
         if self.camera_matrix is None:
-            # Sem calibracao, não sabemos converter com precisão
-            # Vamos retornar algo nulo ou um placeholder
             print("[Perception] Sem matriz de câmera, não é possível calcular coordenadas.")
             return None
 
-        # Passo 1: Correção de distorção
+        # 1) Cria o ponto de entrada
         src_pts = np.array([[[cx, cy]]], dtype=np.float32)
+
+        # 2) Undistort
         dst_pts = cv2.undistortPoints(src_pts, self.camera_matrix, self.dist_coeffs)
-        u_norm, v_norm = dst_pts[0,0]
-        
-        # Passo 2: Vetor de direção normalizado
-        x = (u_norm - self.camera_matrix[0,2]) / self.camera_matrix[0,0]
-        y = (v_norm - self.camera_matrix[1,2]) / self.camera_matrix[1,1]
-        dir_cam = np.array([x, y, 1.0])
-        
-        # Passo 3: Rotação considerando pitch/roll/yaw
+        u_nd, v_nd = dst_pts[0,0]  # já são coordenadas normalizadas
+
+        # 3) Forme o vetor de direção em coords de câmera
+        dir_cam = np.array([u_nd, v_nd, 1.0], dtype=np.float32)
+
+        # 4) Rotação do robô (roll, pitch, yaw) -> coords do mundo
         R = self._euler_to_rotation_matrix(self.roll, self.pitch, self.yaw)
         dir_world = R @ dir_cam
-        
-        # Passo 4: Interseção com o plano Z=0 (chão)
-        if dir_world[2] == 0:
+
+        # 5) Interseção com Z=0
+        if abs(dir_world[2]) < 1e-9:
             return None
         t = -self.camera_height / dir_world[2]
-        x = dir_world[0] * t
-        y = dir_world[1] * t
+        X = dir_world[0] * t
+        Y = dir_world[1] * t
+
+        return (X, Y)
         
-        return (x, y)
-    
     def _euler_to_rotation_matrix(self, roll, pitch, yaw):
         # Implementação correta da matriz de rotação ZYX
         R_x = np.array([[1, 0, 0],
