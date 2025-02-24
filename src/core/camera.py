@@ -3,7 +3,7 @@ import yaml
 import numpy as np
 
 class Camera:
-    def __init__(self, calibration_file="config/camera_calibration.yaml", width=640, height=480, index=0):
+    def __init__(self, calibration_file, width=640, height=480, index=0):
         """
         Inicializa a câmera, carregando parâmetros de calibração (se existirem).
         
@@ -85,20 +85,8 @@ class Camera:
         # Se houver dados de calibração disponíveis, faz undistort
         if self.camera_matrix is not None and self.dist_coeffs is not None:
             # Opção 1: Uso direto de cv2.undistort
-            #frame = cv2.undistort(frame, self.camera_matrix, self.dist_coeffs)
+            frame = cv2.undistort(frame, self.camera_matrix, self.dist_coeffs)
             
-            # OU Opção 2: caso queira usar getOptimalNewCameraMatrix e remap
-            if self.new_camera_matrix is None:
-                h, w = frame.shape[:2]
-                self.new_camera_matrix, roi = cv2.getOptimalNewCameraMatrix(
-                    self.camera_matrix, self.dist_coeffs, (w, h), 1, (w, h)
-                )
-                mapx, mapy = cv2.initUndistortRectifyMap(
-                self.camera_matrix, self.dist_coeffs, None,
-                self.new_camera_matrix, (w, h), 5
-            )
-            frame = cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
-
         return frame
 
     def release(self):

@@ -1,88 +1,112 @@
-import time
+import cv2
+import torch
+import math
 import numpy as np
 import yaml
 from collections import deque
-import math
-import cv2
+import time
 
 class Perception:
-    """
-    Classe responsável por (1) ler e fundir dados de IMU (giroscópio, magnetômetro)
-    para estimar a orientação do robô e (2) projetar objetos detectados pelo YOLO
-    em coordenadas do robô/campo.
-    """
-
-    def __init__(self, camera_matrix=None, dist_coeffs=None, camera_height=0.25, alpha=0.98, calibration_file="config/camera_calibration.yaml"):
+    def __init__(
+        self,
+        calibration_file,
+        camera_height=0.15,  # Exemplo de altura da câmera em relação ao chão
+        roll=0.0,
+        pitch=0.0,
+        yaw=0.0,
+        alpha=0.98
+    ):
         """
-        :param camera_matrix: Matriz intrínseca da câmera (np.array 3x3) para projeção.
-        :param dist_coeffs: Coeficientes de distorção (array).
-        :param camera_height: Altura (em metros) da câmera em relação ao chão (para cálculo de distância).
-        :param alpha: Coeficiente do Filtro Complementar (entre 0 e 1).
+        Inicializa a classe de percepção.
         :param calibration_file: Caminho para o arquivo YAML com parâmetros de calibração.
+        :param camera_height: Altura da câmera em relação ao plano Z=0.
+        :param roll, pitch, yaw: Ângulos em radianos representando a orientação do robô/câmera.
         """
-        # Se os parâmetros de calibração não foram fornecidos, tenta carregá-los do arquivo
-        if camera_matrix is None or dist_coeffs is None:
-            try:
-                with open(calibration_file, 'r') as f:
-                    calib_data = yaml.safe_load(f)
-                # Carrega a câmera matrix: pode estar em formato de dict ou lista
-                cam_info = calib_data.get("camera_matrix", None)
-                if cam_info is not None:
-                    if isinstance(cam_info, dict):
-                        data = cam_info.get("data", [])
-                        rows = cam_info.get("rows", 3)
-                        cols = cam_info.get("cols", 3)
-                        camera_matrix = np.array(data, dtype=np.float32).reshape((rows, cols))
 
-                    elif isinstance(cam_info, list):
-                        # Se já for uma lista de listas
-                        camera_matrix = np.array(cam_info, dtype=np.float32)
-                else:
-                    print("[Perception] camera_matrix não encontrada no arquivo de calibração.")
+        self.camera_matrix = None
+        self.dist_coeffs = None
 
-                # Carrega os coeficientes de distorção
-                dcoeffs = calib_data.get("dist_coeffs", None)
-                if dcoeffs is not None:
-                    dist_coeffs = np.array(dcoeffs, dtype=np.float32)
-                else:
-                    print("[Perception] dist_coeffs não encontrados no arquivo de calibração.")
+        # Carrega dados de calibração, se existirem
+        self._load_calibration(calibration_file)
 
-            except Exception as e:
-                print("[Perception] Erro ao carregar calibração:", e)
-                camera_matrix = None
-                dist_coeffs = None
-
-        self.camera_matrix = camera_matrix
-        self.dist_coeffs = dist_coeffs
         self.camera_height = camera_height
+        self.roll = roll
+        self.pitch = pitch
+        self.yaw = yaw
         self.mag_bias = np.array([0.0, 0.0, 0.0])
 
         # Buffer de dados do IMU (para sincronizar, se necessário)
         self.imu_data_queue = deque(maxlen=100)
-
-        # Estado de orientação (yaw, pitch, roll) estimado
-        self.yaw = 0.0
-        self.pitch = 0.0
-        self.roll = 0.0
 
         # Ganho do filtro complementar
         self.alpha = alpha
         # Timestamp para integração do IMU
         self.last_time = time.time()
 
+        # Carrega o modelo MiDaS pequeno (DPT_Small) para depth estimation
+        self.midas_type = "MiDaS_small"  # Modelo menor que outras variantes MiDaS
+        print("[Perception] Carregando modelo MiDaS:", self.midas_type)
+        self.midas = torch.hub.load("intel-isl/MiDaS", self.midas_type)
+        self.midas.eval()
+
+        # Carrega transforms recomendados para MiDaS
+        midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
+        self.midas_transform = midas_transforms.dpt_transform
+
+        # Define dispositivo (GPU se disponível, caso contrário CPU)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.midas.to(self.device)
+        print(torch.__version__)
+        print(torch.cuda.is_available())
+        print(f"[Perception] Modelo de profundidade carregado em: {self.device}")
+
+    def _load_calibration(self, calibration_file):
+        """
+        Lê o arquivo de calibração YAML e extrai os parâmetros intrínsecos
+        e coeficientes de distorção da câmera.
+        """
+        try:
+            with open(calibration_file, 'r') as f:
+                calib_data = yaml.safe_load(f)
+            
+            # Carrega matriz da câmera se existir
+            cam_matrix_info = calib_data.get("camera_matrix", {})
+            if cam_matrix_info and "data" in cam_matrix_info:
+                data = cam_matrix_info["data"]
+                rows = cam_matrix_info["rows"]
+                cols = cam_matrix_info["cols"]
+                self.camera_matrix = np.array(data).reshape((rows, cols)).astype(np.float32)
+            else:
+                print("[Perception] Aviso: arquivo de calibração não contém 'camera_matrix' válida.")
+            
+            # Carrega coeficientes de distorção
+            dist = calib_data.get("dist_coeffs", None)
+            if dist:
+                self.dist_coeffs = np.array(dist).astype(np.float32)
+            else:
+                print("[Perception] Aviso: arquivo de calibração não contém 'dist_coeffs'.")
+
+            if self.camera_matrix is not None and self.dist_coeffs is not None:
+                print("[Perception] Calibração carregada com sucesso!")
+            else:
+                print("[Perception] Calibração incompleta ou ausente, seguindo sem correção.")
+        except FileNotFoundError:
+            print(f"[Perception] Arquivo de calibração não encontrado: {calibration_file}")
+        except Exception as e:
+            print(f"[Perception] Erro ao carregar calibração: {e}")
 
     def update_imu_data(self, imu_data):
         """
         Recebe leituras da IMU em tempo real.
         :param imu_data: dict com:
             {
-               'timestamp': <float>,
-               'accel': (ax, ay, az),
-               'gyro': (gx, gy, gz),   # [rad/s]
-               'mag': (mx, my, mz)    # campo magnético
+                'timestamp': <float>,
+                'accel': (ax, ay, az),
+                'gyro': (gx, gy, gz),   # [rad/s]
+                'mag': (mx, my, mz)    # campo magnético
             }
         """
-         # Aplicar correção de hard-iron
+            # Aplicar correção de hard-iron
         imu_data['mag'] = (imu_data['mag'][0] - self.mag_bias[0],
                         imu_data['mag'][1] - self.mag_bias[1],
                         imu_data['mag'][2] - self.mag_bias[2])
@@ -149,16 +173,43 @@ class Perception:
             angle += 2 * math.pi
         return angle
 
-    def compute_world_coords(self, detection, method='advanced'):
+    def get_depth_map(self, frame_bgr):
         """
-        Converte dados de detecção (ex.: centro da bola em pixel) para coordenadas
-        no referencial do robô ou do campo.
-
-        :param detection: dict com infos como 'cx', 'cy', 'radius', etc., e possivelmente 'mask' ou 'contour'.
-        :param method: 'simple' ou outro approach para cálculo de profundidade.
-        :return: (X, Y) em coordenadas do robô/campo (depende do seu frame de referência).
+        Executa inferência no modelo MiDaS para obter o mapa de profundidade
+        no tamanho da imagem original. Retorna depth_map como um array 2D.
         """
+        # 1) Converte BGR -> RGB
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
+        # 2) Aplica transform do MiDaS (normalização, resize etc.)
+        input_batch = self.midas_transform(frame_rgb).to(self.device)
+
+        # 3) Inferência do modelo
+        with torch.no_grad():
+            prediction = self.midas(input_batch)
+            # Redimensiona para o tamanho original (altura, largura)
+            prediction = torch.nn.functional.interpolate(
+                prediction.unsqueeze(1),
+                size=frame_rgb.shape[:2],
+                mode="bicubic",
+                align_corners=False
+            ).squeeze()
+
+        depth_map = prediction.cpu().numpy()
+
+        return depth_map
+
+    def compute_world_coords(self, detection, depth=None):
+        """
+        Converte dados de detecção (ex.: centro da bola em pixels) para
+        coordenadas no referencial do robô/campo, usando mapa de profundidade.
+
+        :param detection: dict com infos como 'cx', 'cy', etc.
+        :param depth_map: mapa de profundidade já calculado (opcional, mas preferível).
+        :param frame_bgr: caso depth_map não seja passado, podemos gerar aqui (menos eficiente).
+        :param method: string para definir qual método de profundidade usar (ex.: 'midas').
+        :return: (X, Y, Z) em coordenadas do robô/campo, ou None se falhar.
+        """
         cx = detection.get('cx', None)
         cy = detection.get('cy', None)
         if cx is None or cy is None:
@@ -166,70 +217,88 @@ class Perception:
             return None
 
         if self.camera_matrix is None:
-            print("[Perception] Sem matriz de câmera, não é possível calcular coordenadas.")
+            print("[Perception] Sem matriz de câmera, não é possível calcular coords.")
             return None
 
-        # 1) Cria o ponto de entrada
-        src_pts = np.array([[[cx, cy]]], dtype=np.float32)
+        # Se não passamos depth_map, geramos agora (pode ser mais lento se houver muitas deteções)
+        if depth is None:
+            depth_map = depth
+        else:
+            print("[Perception] Método de profundidade desconhecido ou não implementado.")
+            return None
 
-        # 2) Undistort
+        # Garante índices dentro da imagem
+        h, w = depth_map.shape
+        cx_int = min(max(int(cx), 0), w - 1)
+        cy_int = min(max(int(cy), 0), h - 1)
+
+        # Valor de profundidade no pixel desejado
+        depth_value = depth_map[cy_int, cx_int]
+
+        # Verifica se é válido
+        if depth_value <= 0:
+            print("[Perception] Profundidade inválida ou zero no ponto requisitado.")
+            return None
+
+        # Opcional: se a profundidade de MiDaS não for em escala métrica, aplicar fator
+        # depth_value *= self.scale_factor  # Exemplo de calibração
+
+        # 1) Undistort o ponto, para maior exatidão
+        src_pts = np.array([[[cx_int, cy_int]]], dtype=np.float32)
         dst_pts = cv2.undistortPoints(src_pts, self.camera_matrix, self.dist_coeffs)
-        u_nd, v_nd = dst_pts[0,0]  # já são coordenadas normalizadas
+        u_nd, v_nd = dst_pts[0, 0]  # coords normalizadas
 
-        # 3) Forme o vetor de direção em coords de câmera
-        dir_cam = np.array([u_nd, v_nd, 1.0], dtype=np.float32)
+        # 2) Reprojetar em coords de câmera
+        #    Xc = u_nd * Zc, Yc = v_nd * Zc, Zc = depth_value
+        Xc = u_nd * depth_value
+        Yc = v_nd * depth_value
+        Zc = depth_value
 
-        # 4) Rotação do robô (roll, pitch, yaw) -> coords do mundo
+        cam_point = np.array([Xc, Yc, Zc], dtype=np.float32)
+
+        # 3) Rotação e Translação para coords do robô/campo
         R = self._euler_to_rotation_matrix(self.roll, self.pitch, self.yaw)
-        dir_world = R @ dir_cam
+        T = np.array([0.0, 0.0, self.camera_height], dtype=np.float32)
 
-        # 5) Interseção com Z=0
-        if abs(dir_world[2]) < 1e-9:
-            return None
-        t = -self.camera_height / dir_world[2]
-        X = dir_world[0] * t
-        Y = dir_world[1] * t
+        world_point = R @ cam_point + T
+
+        X = world_point[0]
+        Y = world_point[1]
+        Z = world_point[2]
 
         return (X, Y)
-        
-    def _euler_to_rotation_matrix(self, roll, pitch, yaw):
-        # Implementação correta da matriz de rotação ZYX
-        R_x = np.array([[1, 0, 0],
-                        [0, math.cos(roll), -math.sin(roll)],
-                        [0, math.sin(roll), math.cos(roll)]])
-        
-        R_y = np.array([[math.cos(pitch), 0, math.sin(pitch)],
-                        [0, 1, 0],
-                        [-math.sin(pitch), 0, math.cos(pitch)]])
-        
-        R_z = np.array([[math.cos(yaw), -math.sin(yaw), 0],
-                        [math.sin(yaw), math.cos(yaw), 0],
-                        [0, 0, 1]])
-        
-        return R_z @ R_y @ R_x
 
-    def process_detections(self, all_detections):
+    def process_detections(self, all_detections, depth=None):
         """
         Exemplo: itera sobre as detecções de 'ball', 'centercircle', 'penaltycross', etc.
-        e converte cada uma em coordenadas do mundo.
-        
-        :param all_detections: dict retornado por vision, ex.:
+        e converte cada uma em coordenadas no mundo usando o mapa de profundidade.
+
+        :param all_detections: dict retornado pelo detector, ex.:
            {
              'ball': [ {...}, {...} ],
              'centercircle': [ {...}, ...],
              ...
            }
-        :return: dicionário com coordenadas no campo ou no robô, ex.:
+        :param frame_bgr: frame atual da câmera (BGR).
+        :param method: método de profundidade (ex.: 'midas').
+        :return: dicionário com coordenadas em (X, Y, Z), ex.:
            {
-             'ball': [ (x1, y1), (x2, y2) ],
-             'centercircle': [ (xc, yc), ...],
+             'ball': [ (x1, y1, z1), (x2, y2, z2) ],
+             'centercircle': [ (xc, yc, zc), ...],
              ...
            }
         """
 
-        # Primeiro, atualizamos a fusão de orientação
+        # Atualiza orientação (caso necessário, ex.: integrar dados de IMU)
         self.fuse_orientation()
 
+        if depth is not None:
+            depth_map = depth
+        else:
+            print("[Perception] Mapa de profundidade não fornecido, não é possível calcular coords.")
+        
+
+        # Dicionário para armazenar coordenadas no mundo
         world_positions = {
             'ball': [],
             'centercircle': [],
@@ -239,48 +308,68 @@ class Perception:
             'robot': []
         }
 
-        # Para cada tipo de landmark
+        # Itera sobre cada tipo de detecção
         for label, det_list in all_detections.items():
             for det in det_list:
                 if label in ['ball', 'centercircle', 'penaltycross']:
-                    # Supondo que cada det tem (cx, cy)
-                    pos = self.compute_world_coords(det)
-                    if pos:
+                    pos = self.compute_world_coords(det, depth_map)
+                    if pos is not None:
                         world_positions[label].append(pos)
                         if label == 'ball':
-                            print("[Perception] Bola detectada em coordenadas:", pos)
+                            print("[Perception] Bola detectada em coords (X,Y,Z):", pos)
 
                 elif label == 'goal':
-                    # Com "goal", muitas vezes é um contorno grande; se quisermos
-                    # converter em um ponto (ex.: meio do contorno):
-                    # Pega bounding box ou contorno e calcula um "centro" aproximado
+                    # Exemplo: bounding box de um gol
                     bbox = det.get('bbox', None)
                     if bbox:
                         x1, y1, x2, y2 = bbox
-                        cx = (x1 + x2)/2
-                        cy = (y1 + y2)/2
+                        cx = (x1 + x2) / 2
+                        cy = (y1 + y2) / 2
                         temp_det = {'cx': cx, 'cy': cy}
-                        pos = self.compute_world_coords(temp_det)
-                        if pos:
+                        pos = self.compute_world_coords(temp_det, depth_map)
+                        if pos is not None:
                             world_positions[label].append(pos)
 
                 elif label == 'line':
-                    # "line" é mais complicado, pois envolve contornos extensos.  Em
-                    # localization, é comum processar as linhas para achar interseções
-                    # e então converter essas interseções. Aqui fica a critério do
-                    # desenvolvedor. Exemplo:
+                    # Linhas do campo podem demandar lógica customizada (ex.: achar pontos específicos)
                     pass
 
                 elif label == 'robot':
+                    # Exemplo: outro robô detectado, pega base do bounding box
                     bbox = det.get('bbox', None)
                     if bbox:
                         x1, y1, x2, y2 = bbox
                         cx = (x1 + x2) / 2
                         cy = y2
                         temp_det = {'cx': cx, 'cy': cy}
-                        pos = self.compute_world_coords(temp_det)
-                        if pos:
+                        pos = self.compute_world_coords(temp_det, depth_map)
+                        if pos is not None:
                             world_positions[label].append(pos)
 
-
         return world_positions
+
+    def _euler_to_rotation_matrix(self, roll, pitch, yaw):
+        """
+        Implementa a matriz de rotação com convenção Z-Y-X (yaw-pitch-roll).
+        Ajuste caso sua convenção seja diferente.
+        """
+        R_x = np.array([
+            [1, 0,           0          ],
+            [0, math.cos(roll), -math.sin(roll)],
+            [0, math.sin(roll),  math.cos(roll)]
+        ])
+
+        R_y = np.array([
+            [ math.cos(pitch), 0, math.sin(pitch)],
+            [ 0,               1, 0             ],
+            [-math.sin(pitch), 0, math.cos(pitch)]
+        ])
+
+        R_z = np.array([
+            [math.cos(yaw), -math.sin(yaw), 0],
+            [math.sin(yaw),  math.cos(yaw), 0],
+            [0,              0,             1]
+        ])
+
+        return R_z @ R_y @ R_x
+

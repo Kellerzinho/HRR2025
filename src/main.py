@@ -24,9 +24,12 @@ def main():
     """
 
     # 1) Inicialização
-    camera = Camera("config/camera_calibration.yaml", width=640, height=480, index=0)
-    vision = VisionSystem(model_path="models/best.pt", conf_threshold=0.35)
-    perception = Perception(camera_matrix=None, dist_coeffs=None, camera_height=1, alpha=0.98)
+    calibration_file="config/camera_calibration.yaml"
+    model_path="models/best.pt"
+
+    camera = Camera(calibration_file, width=160, height=120, index=0)
+    vision = VisionSystem(model_path, conf_threshold=0.35)
+    perception = Perception(calibration_file, camera_height=0.3, roll=0.0, pitch=0.0, yaw=0.0, alpha=0.98)
 
     # Carrega configurações do campo (com várias referências)
     field_map = load_config("data/maps/field_map.json")
@@ -39,6 +42,11 @@ def main():
     field_drawer = FieldDrawer(scale=100)
 
     last_time = time.time()
+
+    # Variáveis para subamostragem temporal do MiDaS
+    last_depth_map = None
+    last_depth_time = 0
+    depth_interval = 0.2  # 1/5 FPS (0.2 segundos) para MiDaS
 
     try:
         while True:
@@ -55,21 +63,31 @@ def main():
             # 2) Ler IMU e atualizar Perception
             imu_data = imu_reader.get_imu_data()
             perception.update_imu_data(imu_data)
-
+        
             # 3) Detectar landmarks
             detections = vision.detect_landmarks(frame)
             debug_frame = vision.draw_segmentations(frame.copy(), detections)
 
-            # 4) Converter detecções para (x, y) no frame local do robô
-            world_positions_xy = perception.process_detections(detections)
+            # 4) Gera mapa de profundidade (MiDaS)
+            # Atualiza o depth map somente se passou o intervalo definido
+            if now - last_depth_time >= depth_interval:
+                depth_map = perception.get_depth_map(frame)
+                last_depth_map = depth_map
+                last_depth_time = now
+            else:
+                depth_map = last_depth_map
+
+            # 5) Converter detecções para (x, y) no frame local do robô
+            world_positions_xy = perception.process_detections(detections, depth_map)
             print("[Main] world_positions_xy (frame local):", world_positions_xy)
 
-            # 5) Odometria via aceleração do IMU
+            # 6) Odometria via aceleração do IMU
             dx, dy, dtheta = odom_state.compute_odometry_from_imu(perception)
             odom = (dx, dy, dtheta)
 
-            # 6) Processar medições de landmarks para o SLAM (exemplo para goal, centercircle, penaltycross)
+            # 7) Processar medições de landmarks para o SLAM (exemplo para goal, centercircle, penaltycross)
             slam_world_positions = {}
+
             # Exemplo para "goal"
             goals = world_positions_xy.get("goal", [])
             goal_measure_list = []
@@ -99,7 +117,7 @@ def main():
             if pc_measure_list:
                 slam_world_positions["penaltycross_measure"] = pc_measure_list
 
-            # 7) Atualiza ball_tracker (usando a detecção local da bola)
+            # 8) Atualiza ball_tracker (usando a detecção local da bola)
             ball_tracker.predict(dt)
             ball_positions = world_positions_xy.get('ball', [])
             if ball_positions:
@@ -107,11 +125,11 @@ def main():
                 ball_tracker.update((bx, by))
             x_ball_est, y_ball_est, vx_ball_est, vy_ball_est = ball_tracker.get_state()
 
-            # 8) Atualiza SLAM com odometria e medições (se houver)
+            # 9) Atualiza SLAM com odometria e medições (se houver)
             slam.update(odom, dt, slam_world_positions)
             x_est, y_est, theta_est = slam.get_best_estimate()
 
-            # 9) Converter as coordenadas dos landmarks do frame local para o global do campo
+            # 10) Converter as coordenadas dos landmarks do frame local para o global do campo
             # usando a pose global do robô (x_est, y_est, theta_est)
             extra_landmarks_global = {}
 
@@ -135,20 +153,32 @@ def main():
                     extra_landmarks_global["robot"].append((rx_global, ry_global))
                 print("[Main] extra_landmarks['robot'] (global):", extra_landmarks_global["robot"])
 
-            # 10) Depuração no frame de visão
+            # 11) Depuração no frame de visão
+            if dt > 0:
+                fps = 1.0 / dt
+            else:
+                fps = 0  # ou definir um valor padrão, se preferir
+
+            cv2.putText(debug_frame, f"FPS: {fps:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             cv2.putText(debug_frame,
                         f"Pose: x={x_est:.2f}, y={y_est:.2f}, th={math.degrees(theta_est):.1f}",
                         (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,255,255), 2)
             cv2.imshow("Debug Vision+SLAM", debug_frame)
             
-            # 11) Desenha o campo com a pose global do robô e os landmarks convertidos
+            # 12) Desenha o campo com a pose global do robô e os landmarks convertidos
             field_img = field_drawer.draw_field(field_map, (x_est, y_est, theta_est), extra_landmarks_global)
             cv2.imshow("Campo - Posição do Robô", field_img)
+
+            # 13) Exibe mapa de profundidade (MiDaS)
+            depth_vis = cv2.normalize(depth_map, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+            colored_depth = cv2.applyColorMap(depth_vis, cv2.COLORMAP_MAGMA)
+            cv2.imshow("Depth Map (MiDaS)", colored_depth)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-            time.sleep(0.01)
+            #time.sleep(0.01)
+
     except KeyboardInterrupt:
         print("[Main] Encerrando por KeyboardInterrupt...")
 

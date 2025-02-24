@@ -173,22 +173,33 @@ class VisionSystem:
         
         # Para cada tipo de detecção (label) e lista de detecções
         for label, det_list in detections.items():
-            # Obtém a cor definida para o label
             c = color_map.get(label, (255, 255, 255))
             for det in det_list:
-                # Se a detecção possui uma máscara
                 if 'mask' in det:
                     mask = det['mask']
-                    # Certifique-se de que a máscara é do tipo uint8
+                    # Se a máscara tiver mais de um canal, extraia o primeiro
+                    if len(mask.shape) == 3:
+                        mask = mask[:, :, 0]
+                    # Redimensione a máscara para ter o mesmo tamanho do frame, se necessário
+                    if mask.shape != frame.shape[:2]:
+                        mask = cv2.resize(mask, (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_NEAREST)
+                    # Converta para uint8 se ainda não for
                     if mask.dtype != np.uint8:
-                        mask = mask.astype(np.uint8)
-                    # Crie um overlay com a cor desejada
+                        if mask.max() <= 1.0:
+                            mask = (mask * 255).astype(np.uint8)
+                        else:
+                            mask = mask.astype(np.uint8)
+                    # Cria um overlay com a cor definida para o label
                     overlay = np.zeros_like(frame, dtype=np.uint8)
                     overlay[:] = c
-                    # Use a máscara para extrair apenas a área colorida
-                    colored_mask = cv2.bitwise_and(overlay, overlay, mask=mask)
-                    # Misture o overlay colorido com a imagem original (alpha controla a transparência)
+                    # Tenta aplicar o bitwise_and com a máscara
+                    try:
+                        colored_mask = cv2.bitwise_and(overlay, overlay, mask=mask)
+                    except cv2.error as e:
+                        print(f"[Vision] Erro ao aplicar bitwise_and para {label}: {e}")
+                        continue
+                    # Mistura o overlay colorido com o frame original (alpha controla a transparência)
                     alpha = 0.5
                     frame = cv2.addWeighted(frame, 1.0, colored_mask, alpha, 0)
-                    
+
         return frame
